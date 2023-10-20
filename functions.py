@@ -4,11 +4,11 @@ import pandas as pd
 from proforma import proforma
 import numpy as np
 
-sns.set_style("darkgrid")
+sns.set_style("whitegrid")
 
 # scenarios = [1, 2, 3, 4, 5, 6]
 # labels = ['Actual', 'Naive model', 'Mean model', 'Cycle model', 'Projection model', 'Re-scale model']
-colors = ['#FF0000', '#00FF00', '#0000FF', '#FFFF00', '#FF00FF', '#00FFFF', '#800000', '#008000', '#808080', 'black', '#000080']
+colors = ['#FF0000', '#00FF00', '#0000FF', '#FFFF00', '#FF00FF', '#00FFFF', '#800000', '#008000', '#808080', '#000080', 'black']
 
 
 def plot_bar(data, labels, xlabel, ylabel='Internal Rate of Return (IRR)', ylim=None, rotation=None):

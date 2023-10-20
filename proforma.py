@@ -2,6 +2,7 @@ import pandas as pd
 import numpy as np
 import numpy_financial as npf
 from sklearn.linear_model import LinearRegression
+from arch import arch_model
 
 
 class proforma():
@@ -13,7 +14,7 @@ class proforma():
                sales_data_df=None,
                interest_rate_data_df=None):
     """
-    The base class for a rental development project.
+    The base class for a development project.
 
     Parameters
     ----------
@@ -279,8 +280,11 @@ class proforma():
         If True, the vacancy rates are estimated based on the expectation mechanims specified in the same scenario.
         If False, the vacancy rate is considered to be constant over the project's liftime.
     rp_expectation: boolean
-        If True, the rental prices are estimated based on the expectation mechanims specified in the same scenario.
-        If False, the rental price is considered to be constant over the project's liftime.
+        If True, the unit prices are estimated based on the expectation mechanims specified in the same scenario.
+        If False, the unit prices are considered to be constant over the project's liftime.
+    i_expectation: boolean
+        If True, the interest rates are estimated based on the expectation mechanims specified in the same scenario.
+        If False, the interest rates is considered to be constant over the project's liftime.
     """
 
     # Load the data
@@ -417,21 +421,6 @@ class proforma():
         _construction_period_df.at['Net operative income', 'Year{}'.format(i)] = -_construction_period_df['Year{}'.format(i)][['Land acquisition', 'Planning and entitlements', 'Building construction', 'Fees and other soft costs', 'Taxes']].sum()
       else:
         _construction_period_df.at['Net operative income', 'Year{}'.format(i)] = _construction_period_df['Year{}'.format(i)]['Net sales revenue']-_construction_period_df['Year{}'.format(i)][['Land acquisition', 'Planning and entitlements', 'Building construction', 'Fees and other soft costs', 'Taxes', 'Management and overhead', 'Other initial costs']].sum()
-    # if i_expectation:
-    #   _i_expectation_df = self.loan_schedule_table(scenario_number, i_expectation)
-    #   for i in range(int(1+self.d), _construction_period+int(self.d+1)):
-    #     loan_pmt_per_year = 0
-    #     for j in range(12):
-    #       loan_pmt_per_year += _i_expectation_df['Monthly payment'][j+1+12*(i-1)]
-    #     if np.isnan(loan_pmt_per_year):
-    #       loan_pmt_per_year = 0
-    #     _construction_period_df.at['Annual loan payment', 'Year{}'.format(i)] = -loan_pmt_per_year
-    # else:
-    #   if self.R:
-    #     _construction_period_df.at['Annual loan payment', 'Year{}'.format(int(_construction_period+self.d))] = _funding_sources_table['value']['Annual payment']
-    #   else:
-    #     for i in range(2, _construction_period+int(self.d+1)):
-    #       _construction_period_df.at['Annual loan payment', 'Year{}'.format(i)] = _funding_sources_table['value']['Annual payment']
     _i_expectation_df = self.loan_schedule_table(scenario_number, i_expectation)
     for i in range(int(1+self.d), _construction_period+int(self.d+1)):
       loan_pmt_per_year = 0
@@ -444,7 +433,7 @@ class proforma():
       nop_and_loan = _construction_period_df['Year{}'.format(i)][['Net operative income', 'Annual loan payment']].sum()
       if np.isnan(nop_and_loan):
         nop_and_loan = 0
-      other_costs = _construction_period_df['Year{}'.format(i)][['Equity investment', 'Developer fee']].sum()
+      other_costs = _construction_period_df['Year{}'.format(i)]['Equity investment'] - _construction_period_df['Year{}'.format(i)]['Developer fee']
       if np.isnan(other_costs):
         other_costs = 0
       _construction_period_df.at['Cash flow total', 'Year{}'.format(i)] = nop_and_loan + other_costs
@@ -546,12 +535,12 @@ class proforma():
 
   def calculate_irr(self, scenario_number):
     """
-    Calculate the Internal Rate of Reuturn based on the assumptions.
+    Calculate the Internal Rate of Reuturn based on the cashflow of the project.
 
     Parameters
     ----------
     scenario_number: int
-        The scenario number in the input sheet which is used to produce the table.
+        The scenario number in the input sheet.
     """
 
     _cash_flow_df = eval('self.cash_flow_table_{}'.format(scenario_number))
@@ -559,31 +548,16 @@ class proforma():
     exec('self.irr_{} = irr'.format(scenario_number))
     return irr
 
-  def calculate_irr_2(self, scenario_number):
-    _cash_flow_df = eval('self.cash_flow_table_{}'.format(scenario_number))
-    _funding_sources_df = eval('self.funding_sources_table_{}'.format(scenario_number))
-    _loan_schedule_table = eval('self.loan_schedule_table_{}'.format(scenario_number))
-    self._read_variables(scenario_number, ['N'])
-    _construction_period = int(1 + np.ceil(self.N/(self.kappa*4)))
-
-    _cash_flow_df.at['Yield to developer', 'Year1'] = -_funding_sources_df['value']['Equity amount']
-    developer_return = _cash_flow_df.loc['Net operative income'].sum() - _cash_flow_df.loc['Developer fee'].sum() - _loan_schedule_table['Interest'].sum()
-    for i in range(2, _construction_period+int(self.d+1)):
-      _cash_flow_df['Year{}'.format(i)]['Yield to developer'] = (_cash_flow_df['Year{}'.format(i)]['Units closed'] / self.N) * developer_return
-    _cash_flow_df['Year{}'.format(_construction_period)]['Yield to developer'] += _funding_sources_df['value']['Equity amount']
-    exec('self.cash_flow_table_{} = _cash_flow_df'.format(scenario_number))
-    irr = npf.irr(_cash_flow_df.loc['Yield to developer'])
-    exec('self.irr_{} = irr'.format(scenario_number))
-    return irr
-
   def calculate_npv(self, scenario_number, rate):
     """
-    Calculate the Net Present Value based on the assumptions.
+    Calculate the Net Present Value based on the cashflow and a rate of ruturn.
 
     Parameters
     ----------
     scenario_number: int
-        The scenario number in the input sheet which is used to produce the table.
+        The scenario number in the input sheet.
+    rate: float
+        The rate of return used to calculate the NPV.
     """
 
     _cash_flow_df = eval('self.cash_flow_table_{}'.format(scenario_number))
@@ -970,12 +944,12 @@ class proforma():
     decision_delay = _expectation_df[_expectation_df['REF_DATE'] == str(t_d)[:7]].index[0] - _expectation_df[_expectation_df['REF_DATE'] == str(t_init)[:7]].index[0]
     if expectation_model == 'Naive model':
       for i in range(i_start, i_end):
-        _estimation_df['VALUE'][i] = _expectation_df['VALUE'][N_expectation_model+decision_delay]
-        _expectation_df['VALUE'][i] = _expectation_df['VALUE'][N_expectation_model+decision_delay]
+        _estimation_df['VALUE'][i] = _expectation_df['VALUE'][i-1]
+        _expectation_df['VALUE'][i] = _expectation_df['VALUE'][i-1]
     elif expectation_model == 'Mean model':
       for i in range(i_start, i_end):
-        _estimation_df['VALUE'][i] = _expectation_df['VALUE'][int(i-C_expectation_model):int(i)].mean()
-        _expectation_df['VALUE'][i] = _expectation_df['VALUE'][int(i-C_expectation_model):int(i)].mean()
+        _estimation_df['VALUE'][i] = _expectation_df['VALUE'][int(i-C_expectation_model-1):int(i-1)].mean()
+        _expectation_df['VALUE'][i] = _expectation_df['VALUE'][int(i-C_expectation_model-1):int(i-1)].mean()
     elif expectation_model == 'Cycle model':
       for i in range(i_start, i_end):
         _estimation_df['VALUE'][i] = _expectation_df['VALUE'][int(i-C_expectation_model)]
@@ -983,8 +957,8 @@ class proforma():
     elif expectation_model == 'Projection model':
       _expectation_df['PER_NUM'] = _expectation_df.index.values
       for i in range(i_start, i_end):
-        x = _expectation_df['PER_NUM'][int(i-C_expectation_model):int(i)].to_numpy().reshape((-1, 1))
-        y = _expectation_df['VALUE'][int(i-C_expectation_model):int(i)].to_numpy()
+        x = _expectation_df['PER_NUM'][int(i-C_expectation_model-1):int(i-1)].to_numpy().reshape((-1, 1))
+        y = _expectation_df['VALUE'][int(i-C_expectation_model-1):int(i-1)].to_numpy()
         model = LinearRegression().fit(x, y)
         _estimation_df['VALUE'][i] = model.predict([[_expectation_df['PER_NUM'][i]]])
         _expectation_df['VALUE'][i] = model.predict([[_expectation_df['PER_NUM'][i]]])
@@ -994,24 +968,45 @@ class proforma():
         _expectation_df['VALUE'][i] = C_expectation_model*_expectation_df['VALUE'][i-1]
     elif expectation_model == 'Adaptive expectations':
       _expectation_df['Actual'] = _expectation_df['VALUE']
-      for i in range(i_start, i_end):
-        _estimation_df['VALUE'][i] = C_expectation_model*_expectation_df['Actual'][i-1] + (1-C_expectation_model)*_expectation_df['VALUE'][i-1]
-        _expectation_df['VALUE'][i] = C_expectation_model*_expectation_df['Actual'][i-1] + (1-C_expectation_model)*_expectation_df['VALUE'][i-1]
+      _estimation_df['Actual'] = _estimation_df['VALUE']
+      for i in range(2, i_start):
+        _estimation_df['Actual'][i] = C_expectation_model*_expectation_df['VALUE'][i-1] + (1-C_expectation_model)*_expectation_df['Actual'][i-1]
+        _expectation_df['Actual'][i] = C_expectation_model*_expectation_df['VALUE'][i-1] + (1-C_expectation_model)*_expectation_df['Actual'][i-1]
+      last_observed_data = _expectation_df['Actual'][N_expectation_model+decision_delay]
+      _estimation_df['VALUE'][i_start] = C_expectation_model*last_observed_data + (1-C_expectation_model)*_expectation_df['Actual'][i_start-1]
+      _expectation_df['VALUE'][i_start] = C_expectation_model*last_observed_data + (1-C_expectation_model)*_expectation_df['Actual'][i_start-1]
+      for i in range(i_start+1, i_end):
+        _estimation_df['VALUE'][i] = C_expectation_model*last_observed_data + (1-C_expectation_model)*_expectation_df['VALUE'][i-1]
+        _expectation_df['VALUE'][i] = C_expectation_model*last_observed_data + (1-C_expectation_model)*_expectation_df['VALUE'][i-1]
       _expectation_df = _expectation_df.drop('Actual', axis=1)
+      _estimation_df = _estimation_df.drop('Actual', axis=1)
     elif expectation_model == 'Trend following':
       _expectation_df['Actual'] = _expectation_df['VALUE']
       for i in range(i_start, i_end):
-        _estimation_df['VALUE'][i] = _expectation_df['Actual'][i-1] + C_expectation_model*(_expectation_df['Actual'][i-1]-_expectation_df['Actual'][i-2])
-        _expectation_df['VALUE'][i] = _expectation_df['Actual'][i-1] + C_expectation_model*(_expectation_df['Actual'][i-1]-_expectation_df['Actual'][i-2])
+        _estimation_df['VALUE'][i] = _expectation_df['VALUE'][i-1] + C_expectation_model*(_expectation_df['VALUE'][i-1]-_expectation_df['VALUE'][i-2])
+        _expectation_df['VALUE'][i] = _expectation_df['VALUE'][i-1] + C_expectation_model*(_expectation_df['VALUE'][i-1]-_expectation_df['VALUE'][i-2])
       _expectation_df = _expectation_df.drop('Actual', axis=1)
     elif expectation_model == 'Anchor and adjustment':
       _expectation_df['Actual'] = _expectation_df['VALUE']
       for i in range(i_start, i_end):
-        p_av = np.mean(_expectation_df['Actual'][int(i-C_expectation_model):int(i)].to_numpy())
-        _estimation_df['VALUE'][i] = (p_av+_expectation_df['Actual'][i-1])/2 + (_expectation_df['Actual'][i-1]-_expectation_df['Actual'][i-2])
-        _expectation_df['VALUE'][i] = (p_av+_expectation_df['Actual'][i-1])/2 + (_expectation_df['Actual'][i-1]-_expectation_df['Actual'][i-2])
+        p_av = np.mean(_expectation_df['VALUE'][int(i-C_expectation_model-1):int(i-1)].to_numpy())
+        _estimation_df['VALUE'][i] = (p_av+_expectation_df['VALUE'][i-1])/2 + (_expectation_df['VALUE'][i-1]-_expectation_df['VALUE'][i-2])
+        _expectation_df['VALUE'][i] = (p_av+_expectation_df['VALUE'][i-1])/2 + (_expectation_df['VALUE'][i-1]-_expectation_df['VALUE'][i-2])
       _expectation_df = _expectation_df.drop('Actual', axis=1)
+    elif expectation_model == 'garch':
+      returns = _expectation_df['VALUE'][int(i_start-C_expectation_model-1):int(i_start-1)].pct_change().dropna()
+      model = arch_model(returns, vol='Garch', p=1, q=1)
+      model_fit = model.fit(disp='off')
+      forecast = model_fit.forecast(start=0, horizon=len(_estimation_df))
+      forecasted_returns = forecast.mean.iloc[-1] + np.random.normal(0, forecast.variance.iloc[-1] ** 0.5, len(_estimation_df))
+      forecasted_data = _expectation_df['VALUE'][i_start-1] * (1 + forecasted_returns).cumprod()
+      for i in range(i_start, i_end):
+        _estimation_df['VALUE'][i] = forecasted_data[i-i_start]
+        _expectation_df['VALUE'][i] = forecasted_data[i-i_start]
     if variable_notation == 'vr' or variable_notation == 'i':
       _estimation_df['VALUE'] = _estimation_df['VALUE'].clip(0, 1)
       _expectation_df['VALUE'] = _expectation_df['VALUE'].clip(0, 1)
+    elif variable_notation == 'cc' or variable_notation == 'rp':
+      _estimation_df['VALUE'] = _estimation_df['VALUE'].clip(0)
+      _expectation_df['VALUE'] = _expectation_df['VALUE'].clip(0)
     return _estimation_df, _expectation_df
